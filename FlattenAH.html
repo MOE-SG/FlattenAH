@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlattenAH - HTML to CSV</title>
+  <style>
+    :root { color-scheme: light; font: 15px/1.45 system-ui, sans-serif; }
+    body { max-width: 920px; margin: 0 auto; padding: 32px 20px; color: #172033; background: #f5f7fb; }
+    main { background: white; border: 1px solid #d9e0ec; border-radius: 12px; padding: 28px; box-shadow: 0 5px 22px #17203312; }
+    .title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; } p { color: #526078; }
+    #loadNew { padding: 8px 12px; background: #526078; white-space: nowrap; }
+    #dropZone { border: 2px dashed #7c8da8; border-radius: 10px; padding: 42px 20px; text-align: center; cursor: pointer; }
+    #dropZone.over, #dropZone:hover { border-color: #1769e0; background: #f0f6ff; }
+    button, .button { display: inline-block; border: 0; border-radius: 7px; padding: 10px 16px; color: white; background: #1769e0; cursor: pointer; font: inherit; text-decoration: none; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #filePicker { display: none; } #status { margin-top: 18px; font-weight: 600; }
+    #details { color: #526078; white-space: pre-wrap; margin: 8px 0 18px; }
+    .error { color: #a11; } .ok { color: #176b3a; }
+    .options { display: flex; gap: 18px; align-items: center; margin: 18px 0; }
+    code { background: #eef2f8; padding: 2px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="title-row">
+    <h1>FlattenAH</h1>
+    <button id="loadNew" type="button">Load new files</button>
+  </div>
+  <p>Drop an Airhang HTML report below. The report is flattened into one row and downloaded as a CSV file that opens directly in Excel.</p>
+  <div id="dropZone" tabindex="0" role="button" aria-label="Choose an HTML report">
+    <strong>Drop an .htm or .html file here</strong><br>
+    <span>or click to browse</span>
+    <input id="filePicker" type="file" accept=".htm,.html,text/html">
+  </div>
+  <div class="options">
+    <label><input id="includeEmpty" type="checkbox" checked> Include empty / <code>na</code> values</label>
+    <button id="download" type="button" disabled>Download CSV</button>
+  </div>
+  <div id="status">No file selected.</div>
+  <div id="details"></div>
+</main>
+<script>
+(() => {
+  "use strict";
+  const zone = document.querySelector("#dropZone");
+  const picker = document.querySelector("#filePicker");
+  const download = document.querySelector("#download");
+  const loadNew = document.querySelector("#loadNew");
+  const includeEmpty = document.querySelector("#includeEmpty");
+  const status = document.querySelector("#status");
+  const details = document.querySelector("#details");
+  let result = null;
+
+  const clean = value => (value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const key = value => clean(value).replace(/["']/g, "").replace(/[()]/g, "")
+    .replace(/&/g, "and").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const cells = row => [...row.children].filter(node => /^(TD|TH)$/i.test(node.tagName))
+    .map(cell => clean(cell.textContent));
+  const unique = names => {
+    const seen = Object.create(null);
+    return names.map(name => {
+      const base = name || "Column";
+      seen[base] = (seen[base] || 0) + 1;
+      return seen[base] === 1 ? base : `${base}_${seen[base]}`;
+    });
+  };
+  const isEmpty = value => value === "" || value.toLowerCase() === "na";
+
+  function previousLabel(table) {
+    let node = table;
+    for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        const text = clean(sibling.textContent);
+        if (text && !/^(tips:|spacing$)/i.test(text)) return text;
+      }
+    }
+    return "Measurements";
+  }
+
+  function bandFor(table) {
+    for (let node = table; node; node = node.parentElement) {
+      const id = node.id || "";
+      const match = id.match(/^(High|Low) Gain(500 kHz|2 MHz)Table$/i);
+      if (match) return `${match[1]} Gain ${match[2]}`;
+    }
+    return "";
+  }
+
+  function parse(file, html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const text = clean(doc.body.textContent);
+    if (!doc.body || !doc.querySelector("table")) throw new Error("No HTML tables were found.");
+    const values = Object.create(null);
+    const reportTitle = clean(doc.body.querySelector("span")?.textContent);
+    const fileBase = file.name.replace(/\.(html?|HTML?)$/, "");
+    values.File_Name = file.name;
+
+    for (const table of doc.querySelectorAll("table")) {
+      for (const row of table.rows) {
+        const parts = cells(row);
+        if (parts.length === 2 && parts[0] && !/^spacing$/i.test(parts[0])) {
+          const label = parts[0].toLowerCase();
+          if (/^(tool id|tool size|date time|technician|tool location|temperature|mechanical offset|airhang pc app version|pn|description|date)$/.test(label)) {
+            const target = { "tool id": "Tool_ID", "tool size": "Tool_Size", "date time": "Date_Time",
+              "technician": "Technician", "tool location": "Tool_Location", "temperature": "Temperature",
+              "mechanical offset": "Mechanical_Offset", "airhang pc app version": "Airhang_PC_App_Version",
+              "pn": "PN", "description": "Description", "date": "Date" }[label];
+            if (target && values[target] === undefined) values[target] = parts[1];
+          }
+        }
+      }
+    }
+    const componentTable = [...doc.querySelectorAll("table")].find(table =>
+      clean(table.rows[0]?.textContent).toLowerCase().includes("component"));
+    if (componentTable) {
+      for (const row of componentTable.rows) {
+        const parts = cells(row);
+        if (parts.length >= 3 && parts[0] && !/^component$/i.test(parts[0])) {
+          const component = key(parts[0]);
+          if (component) values[`${component}_Equipment_Number`] = parts[1];
+        }
+      }
+    }
+
+    const columns = [];
+    const row = [];
+    for (const table of doc.querySelectorAll("table")) {
+      const tableRows = [...table.rows].map(cells);
+      if (!tableRows.length || !/^spacing$/i.test(tableRows[0][0] || "") || tableRows[0].length < 2) continue;
+      const band = key(bandFor(table));
+      const heading = key(previousLabel(table));
+      const prefix = [band, heading].filter(Boolean).join("_");
+      const spacings = tableRows[0].slice(1);
+      for (const data of tableRows.slice(1)) {
+        if (!data[0]) continue;
+        data.slice(1).forEach((value, index) => {
+          if (index >= spacings.length) return;
+          const column = unique([`${prefix}_${key(spacings[index])}_${key(data[0])}`])[0];
+          if (!columns.includes(column)) columns.push(column);
+          row[columns.indexOf(column)] = value;
+        });
+      }
+    }
+    const metadataNames = Object.keys(values);
+    const filtered = columns.filter((column, index) => includeEmpty.checked || !isEmpty(row[index] || ""));
+    const outputHeaders = unique(metadataNames.concat(filtered));
+    const outputValues = metadataNames.map(name => values[name]).concat(filtered.map(name => row[columns.indexOf(name)] || ""));
+    if (outputHeaders.length <= metadataNames.length) throw new Error("No measurement tables with a Spacing header were found.");
+    return { headers: outputHeaders, row: outputValues, fileBase, reportTitle, source: text.length };
+  }
+
+  async function read(file) {
+    try {
+      if (!file.name.match(/\.(html?|HTML?)$/)) throw new Error("Please choose an .htm or .html file.");
+      status.textContent = "Reading and flattening...";
+      status.className = "";
+      result = parse(file, await file.text());
+      download.disabled = false;
+      status.textContent = "Ready to download.";
+      status.className = "ok";
+      details.textContent = `${result.reportTitle || "HTML report"}\n${result.headers.length} columns, 1 data row`;
+    } catch (error) {
+      result = null; download.disabled = true;
+      status.textContent = error.message || "Could not parse this file.";
+      status.className = "error"; details.textContent = "";
+    }
+  }
+  function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+  function save() {
+    if (!result) return;
+    const csv = "\ufeff" + [result.headers, result.row].map(line => line.map(csvCell).join(",")).join("\r\n") + "\r\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${result.fileBase}_flattened.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+  function reset() {
+    result = null;
+    picker.value = "";
+    download.disabled = true;
+    status.textContent = "No file selected.";
+    status.className = "";
+    details.textContent = "";
+  }
+  zone.addEventListener("click", () => picker.click());
+  zone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") picker.click(); });
+  picker.addEventListener("change", event => { if (event.target.files[0]) read(event.target.files[0]); });
+  zone.addEventListener("dragover", event => { event.preventDefault(); zone.classList.add("over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("over"));
+  zone.addEventListener("drop", event => { event.preventDefault(); zone.classList.remove("over"); if (event.dataTransfer.files[0]) read(event.dataTransfer.files[0]); });
+  includeEmpty.addEventListener("change", () => { if (picker.files[0]) read(picker.files[0]); });
+  download.addEventListener("click", save);
+  loadNew.addEventListener("click", reset);
+})();
+</script>
+</body>
+</html>
