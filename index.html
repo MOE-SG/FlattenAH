@@ -29,6 +29,10 @@
     .form-buttons { display: flex; gap: 8px; }
     .form-buttons button { margin-top: 8px; }
     .info-text { font-size: 13px; color: #526078; margin-top: 4px; }
+    .test-section { background: #f0f6ff; border: 1px solid #1769e0; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    .test-section h3 { margin-top: 0; color: #1769e0; }
+    .test-section a { color: #1769e0; text-decoration: none; font-weight: 500; }
+    .test-section a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -38,6 +42,14 @@
     <button id="loadNew" type="button">Load new files</button>
   </div>
   <p>Drop an Airhang HTML report below. The report is flattened into one row and downloaded as a CSV file that opens directly in Excel.</p>
+  
+  <div class="test-section">
+    <h3>Test the App</h3>
+    <p>Download a test report file to try out the metadata extraction feature:</p>
+    <a href="https://raw.githubusercontent.com/MOE-SG/FlattenAH/master/test-report.html" download="test-report.html" class="button">Download Test Report</a>
+    <p style="font-size: 13px; color: #526078; margin-top: 8px;">This test file has no product name or 8-digit key in the filename, so you'll be prompted to provide them.</p>
+  </div>
+
   <div id="dropZone" tabindex="0" role="button" aria-label="Choose an HTML report">
     <strong>Drop an .htm or .html file here</strong><br>
     <span>or click to browse</span>
