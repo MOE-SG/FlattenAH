@@ -68,6 +68,40 @@
   };
   const isEmpty = value => value === "" || value.toLowerCase() === "na";
 
+  function extractFileMetadata(filename) {
+    // Extract 8-digit consecutive key (e.g., 12345678)
+    const keyMatch = filename.match(/(\d{8})/);
+    const eightDigitKey = keyMatch ? keyMatch[1] : "";
+
+    // Extract product name: EWR-M5, EWR-SOLAR, AGR, PWD, PCG, PCM, ECMB
+    const productPatterns = ["EWR-M5", "EWR-SOLAR", "AGR", "PWD", "PCG", "PCM", "ECMB"];
+    let productName = "";
+    for (const pattern of productPatterns) {
+      if (filename.toUpperCase().includes(pattern.toUpperCase())) {
+        productName = pattern;
+        break;
+      }
+    }
+
+    return { eightDigitKey, productName };
+  }
+
+  function generateOutputFilename() {
+    // Generate yymmdd-hhmmss format
+    const now = new Date();
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const min = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    const timestamp = `${yy}${mm}${dd}-${hh}${min}${ss}`;
+
+    const { productName } = extractFileMetadata(result.fileBase);
+    const outputName = productName ? `${timestamp}-${productName}-flattenah.csv` : `${timestamp}-flattenah.csv`;
+    return outputName;
+  }
+
   function previousLabel(table) {
     let node = table;
     for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
@@ -177,7 +211,7 @@
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `${result.fileBase}_flattened.csv`;
+    link.download = generateOutputFilename();
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
