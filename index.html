@@ -20,19 +20,6 @@
     .error { color: #a11; } .ok { color: #176b3a; }
     .options { display: flex; gap: 18px; align-items: center; margin: 18px 0; }
     code { background: #eef2f8; padding: 2px 5px; border-radius: 4px; }
-    .metadata-form { background: #f9fafc; border: 1px solid #d9e0ec; border-radius: 8px; padding: 16px; margin: 16px 0; display: none; }
-    .metadata-form.active { display: block; }
-    .form-group { margin-bottom: 12px; }
-    .form-group label { display: block; margin-bottom: 4px; font-weight: 500; }
-    .form-group input { width: 100%; padding: 8px; border: 1px solid #d9e0ec; border-radius: 6px; font-family: monospace; box-sizing: border-box; }
-    .form-group input:focus { outline: none; border-color: #1769e0; background: #f0f6ff; }
-    .form-buttons { display: flex; gap: 8px; }
-    .form-buttons button { margin-top: 8px; }
-    .info-text { font-size: 13px; color: #526078; margin-top: 4px; }
-    .test-section { background: #f0f6ff; border: 1px solid #1769e0; border-radius: 8px; padding: 16px; margin: 16px 0; }
-    .test-section h3 { margin-top: 0; color: #1769e0; }
-    .test-section a { color: #1769e0; text-decoration: none; font-weight: 500; }
-    .test-section a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -42,14 +29,6 @@
     <button id="loadNew" type="button">Load new files</button>
   </div>
   <p>Drop an Airhang HTML report below. The report is flattened into one row and downloaded as a CSV file that opens directly in Excel.</p>
-  
-  <div class="test-section">
-    <h3>Test the App</h3>
-    <p>Download a test report file to try out the metadata extraction feature:</p>
-    <a href="https://raw.githubusercontent.com/MOE-SG/FlattenAH/master/test-report.html" download="test-report.html" class="button">Download Test Report</a>
-    <p style="font-size: 13px; color: #526078; margin-top: 8px;">This test file has no product name or 8-digit key in the filename, so you'll be prompted to provide them.</p>
-  </div>
-
   <div id="dropZone" tabindex="0" role="button" aria-label="Choose an HTML report">
     <strong>Drop an .htm or .html file here</strong><br>
     <span>or click to browse</span>
@@ -61,34 +40,6 @@
   </div>
   <div id="status">No file selected.</div>
   <div id="details"></div>
-
-  <!-- Metadata form for missing 8-digit key or product name -->
-  <div id="metadataForm" class="metadata-form">
-    <h3 style="margin-top: 0;">Complete File Information</h3>
-    <div id="missingInfo"></div>
-    <div class="form-group" id="keyGroup" style="display: none;">
-      <label for="eightDigitKey">8-Digit Key:</label>
-      <input id="eightDigitKey" type="text" placeholder="e.g., 12345678" maxlength="8" pattern="\d{8}">
-      <div class="info-text">Enter exactly 8 digits</div>
-    </div>
-    <div class="form-group" id="productGroup" style="display: none;">
-      <label for="productName">Product Name:</label>
-      <select id="productName" style="width: 100%; padding: 8px; border: 1px solid #d9e0ec; border-radius: 6px; font-family: inherit;">
-        <option value="">-- Select Product --</option>
-        <option value="EWR-M5">EWR-M5</option>
-        <option value="EWR-SOLAR">EWR-SOLAR</option>
-        <option value="AGR">AGR</option>
-        <option value="PWD">PWD</option>
-        <option value="PCG">PCG</option>
-        <option value="PCM">PCM</option>
-        <option value="ECMB">ECMB</option>
-      </select>
-    </div>
-    <div class="form-buttons">
-      <button id="confirmMetadata" type="button">Continue</button>
-      <button id="cancelMetadata" type="button" style="background: #7c8da8;">Cancel</button>
-    </div>
-  </div>
 </main>
 <script>
 (() => {
@@ -100,17 +51,7 @@
   const includeEmpty = document.querySelector("#includeEmpty");
   const status = document.querySelector("#status");
   const details = document.querySelector("#details");
-  const metadataForm = document.querySelector("#metadataForm");
-  const missingInfo = document.querySelector("#missingInfo");
-  const keyGroup = document.querySelector("#keyGroup");
-  const productGroup = document.querySelector("#productGroup");
-  const eightDigitKeyInput = document.querySelector("#eightDigitKey");
-  const productNameSelect = document.querySelector("#productName");
-  const confirmMetadata = document.querySelector("#confirmMetadata");
-  const cancelMetadata = document.querySelector("#cancelMetadata");
-  
   let result = null;
-  let pendingMetadata = null;
 
   const clean = value => (value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   const key = value => clean(value).replace(/["']/g, "").replace(/[()]/g, "")
@@ -126,64 +67,6 @@
     });
   };
   const isEmpty = value => value === "" || value.toLowerCase() === "na";
-
-  function extractFileMetadata(filename) {
-    // Extract 8-digit consecutive key (e.g., 12345678)
-    const keyMatch = filename.match(/(\d{8})/);
-    const eightDigitKey = keyMatch ? keyMatch[1] : "";
-
-    // Extract product name: EWR-M5, EWR-SOLAR, AGR, PWD, PCG, PCM, ECMB
-    const productPatterns = ["EWR-SOLAR", "EWR-M5", "AGR", "PWD", "PCG", "PCM", "ECMB"];
-    let productName = "";
-    for (const pattern of productPatterns) {
-      if (filename.toUpperCase().includes(pattern.toUpperCase())) {
-        productName = pattern;
-        break;
-      }
-    }
-
-    return { eightDigitKey, productName };
-  }
-
-  function showMetadataForm(missing) {
-    pendingMetadata = missing;
-    missingInfo.innerHTML = "";
-    keyGroup.style.display = "none";
-    productGroup.style.display = "none";
-
-    if (!missing.eightDigitKey) {
-      keyGroup.style.display = "block";
-      eightDigitKeyInput.value = "";
-      eightDigitKeyInput.focus();
-    }
-    if (!missing.productName) {
-      productGroup.style.display = "block";
-      productNameSelect.value = "";
-    }
-
-    metadataForm.classList.add("active");
-  }
-
-  function hideMetadataForm() {
-    metadataForm.classList.remove("active");
-    pendingMetadata = null;
-  }
-
-  function generateOutputFilename(metadata) {
-    // Generate yymmdd-hhmmss format
-    const now = new Date();
-    const yy = String(now.getFullYear()).slice(-2);
-    const mm = String(now.getMonth() + 1).padStart(2, "0");
-    const dd = String(now.getDate()).padStart(2, "0");
-    const hh = String(now.getHours()).padStart(2, "0");
-    const min = String(now.getMinutes()).padStart(2, "0");
-    const ss = String(now.getSeconds()).padStart(2, "0");
-    const timestamp = `${yy}${mm}${dd}-${hh}${min}${ss}`;
-
-    const productName = metadata.productName || "";
-    const outputName = productName ? `${timestamp}-${productName}-flattenah.csv` : `${timestamp}-flattenah.csv`;
-    return outputName;
-  }
 
   function previousLabel(table) {
     let node = table;
@@ -274,18 +157,6 @@
       status.textContent = "Reading and flattening...";
       status.className = "";
       result = parse(file, await file.text());
-      
-      // Extract metadata from filename
-      const extracted = extractFileMetadata(result.fileBase);
-      
-      // Check if we need to ask user for missing info
-      if (!extracted.eightDigitKey || !extracted.productName) {
-        showMetadataForm(extracted);
-        status.textContent = "Please complete the file information below.";
-        status.className = "";
-        return;
-      }
-
       download.disabled = false;
       status.textContent = "Ready to download.";
       status.className = "ok";
@@ -294,33 +165,22 @@
       result = null; download.disabled = true;
       status.textContent = error.message || "Could not parse this file.";
       status.className = "error"; details.textContent = "";
-      hideMetadataForm();
     }
   }
-
   function csvCell(value) {
     const text = String(value ?? "");
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
-
   function save() {
     if (!result) return;
     const csv = "\ufeff" + [result.headers, result.row].map(line => line.map(csvCell).join(",")).join("\r\n") + "\r\n";
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    
-    // Get metadata - either from form or extracted
-    const metadata = pendingMetadata ? {
-      eightDigitKey: eightDigitKeyInput.value || pendingMetadata.eightDigitKey,
-      productName: productNameSelect.value || pendingMetadata.productName
-    } : extractFileMetadata(result.fileBase);
-    
-    link.download = generateOutputFilename(metadata);
+    link.download = `${result.fileBase}_flattened.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
-
   function reset() {
     result = null;
     picker.value = "";
@@ -328,37 +188,7 @@
     status.textContent = "No file selected.";
     status.className = "";
     details.textContent = "";
-    hideMetadataForm();
   }
-
-  confirmMetadata.addEventListener("click", () => {
-    if (keyGroup.style.display !== "none") {
-      const keyValue = eightDigitKeyInput.value.trim();
-      if (!keyValue || !/^\d{8}$/.test(keyValue)) {
-        alert("Please enter a valid 8-digit key (8 digits only)");
-        return;
-      }
-      pendingMetadata.eightDigitKey = keyValue;
-    }
-    if (productGroup.style.display !== "none") {
-      const productValue = productNameSelect.value.trim();
-      if (!productValue) {
-        alert("Please select a product name");
-        return;
-      }
-      pendingMetadata.productName = productValue;
-    }
-    hideMetadataForm();
-    download.disabled = false;
-    status.textContent = "Ready to download.";
-    status.className = "ok";
-    details.textContent = `${result.reportTitle || "HTML report"}\n${result.headers.length} columns, 1 data row`;
-  });
-
-  cancelMetadata.addEventListener("click", () => {
-    reset();
-  });
-
   zone.addEventListener("click", () => picker.click());
   zone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") picker.click(); });
   picker.addEventListener("change", event => { if (event.target.files[0]) read(event.target.files[0]); });
