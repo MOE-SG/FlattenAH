@@ -6,28 +6,36 @@
   <title>FlattenAH - HTML to CSV</title>
   <style>
     :root { color-scheme: light; font: 15px/1.45 system-ui, sans-serif; }
-    body { max-width: 920px; margin: 0 auto; padding: 32px 20px; color: #172033; background: #f5f7fb; }
+    body { max-width: 960px; margin: 0 auto; padding: 32px 20px; color: #172033; background: #f5f7fb; }
     main { background: white; border: 1px solid #d9e0ec; border-radius: 12px; padding: 28px; box-shadow: 0 5px 22px #17203312; }
     .title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     h1 { margin: 0; } p { color: #526078; }
-    #loadNew { padding: 8px 12px; background: #526078; white-space: nowrap; }
+    #clearBtn { padding: 8px 12px; background: #526078; white-space: nowrap; }
     #dropZone { border: 2px dashed #7c8da8; border-radius: 10px; padding: 42px 20px; text-align: center; cursor: pointer; }
     #dropZone.over, #dropZone:hover { border-color: #1769e0; background: #f0f6ff; }
     button, .button { display: inline-block; border: 0; border-radius: 7px; padding: 10px 16px; color: white; background: #1769e0; cursor: pointer; font: inherit; text-decoration: none; }
     button:disabled { opacity: .5; cursor: not-allowed; }
-    #filePicker { display: none; } #status { margin-top: 18px; font-weight: 600; }
-    #details { color: #526078; white-space: pre-wrap; margin: 8px 0 18px; }
+    #filePicker { display: none; } #status { margin-top: 14px; font-weight: 600; }
     .error { color: #a11; } .ok { color: #176b3a; }
-    .options { display: flex; gap: 18px; align-items: center; margin: 18px 0; }
+    .options { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
     code { background: #eef2f8; padding: 2px 5px; border-radius: 4px; }
-    #previewWrap { display: none; margin-top: 8px; }
-    #previewWrap.show { display: block; }
-    #previewWrap h2 { font-size: 14px; margin: 0 0 8px; color: #172033; }
-    .table-scroll { max-height: 420px; overflow: auto; border: 1px solid #d9e0ec; border-radius: 8px; }
-    #previewTable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-    #previewTable th, #previewTable td { padding: 7px 10px; border-bottom: 1px solid #e4e9f2; text-align: left; vertical-align: top; }
-    #previewTable th { position: sticky; top: 0; background: #eef2f8; color: #172033; font-weight: 600; }
-    #previewTable td:first-child, #previewTable th:first-child { color: #526078; white-space: nowrap; }
+
+    #fileList { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    #fileList:empty { display: none; margin: 0; }
+    #fileList li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f0f4fa; border: 1px solid #d9e0ec; border-radius: 7px; padding: 7px 12px; font-size: 13.5px; }
+    #fileList li span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #fileList li button.removeFile { background: transparent; color: #a11; padding: 2px 8px; font-size: 13px; border-radius: 5px; }
+    #fileList li button.removeFile:hover { background: #fbe6e6; }
+
+    #resultsCard { margin-top: 8px; }
+    #resultSummary { color: #526078; margin: 0 0 14px; }
+    .table-scroll { max-height: 460px; overflow: auto; border: 1px solid #d9e0ec; border-radius: 8px; }
+    #previewTable { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+    #previewTable th, #previewTable td { padding: 7px 9px; border-bottom: 1px solid #e4e9f2; border-right: 1px solid #eef2f8; text-align: left; vertical-align: top; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+    #previewTable th:last-child, #previewTable td:last-child { border-right: 0; }
+    #previewTable th:first-child, #previewTable td:first-child { width: 20ch; min-width: 20ch; max-width: 20ch; }
+    #previewTable th:not(:first-child), #previewTable td:not(:first-child) { width: 10ch; min-width: 10ch; max-width: 10ch; }
+    #previewTable th { position: sticky; top: 0; background: #eef2f8; color: #172033; font-weight: 600; z-index: 1; }
     #previewTable tr:nth-child(even) td { background: #f9fafc; }
     #previewTable td.empty { color: #9aa5b8; font-style: italic; }
   </style>
@@ -36,43 +44,47 @@
 <main>
   <div class="title-row">
     <h1>FlattenAH</h1>
-    <button id="loadNew" type="button">Load new files</button>
+    <button id="clearBtn" type="button">Clear all</button>
   </div>
-  <p>Drop an Airhang HTML report below. The report is flattened into one row and downloaded as a CSV file that opens directly in Excel.</p>
-  <div id="dropZone" tabindex="0" role="button" aria-label="Choose an HTML report">
-    <strong>Drop an .htm or .html file here</strong><br>
+  <p>Drop one or more Airhang HTML reports below. Each report is flattened into a row; process them, then download a single CSV that opens directly in Excel.</p>
+  <div id="dropZone" tabindex="0" role="button" aria-label="Choose HTML reports">
+    <strong>Drop .htm or .html files here</strong><br>
     <span>or click to browse</span>
-    <input id="filePicker" type="file" accept=".htm,.html,text/html">
+    <input id="filePicker" type="file" accept=".htm,.html,text/html" multiple>
   </div>
+  <ul id="fileList"></ul>
   <div class="options">
     <label><input id="includeEmpty" type="checkbox" checked> Include empty / <code>na</code> values</label>
+    <button id="processBtn" type="button" disabled>Process files</button>
     <button id="download" type="button" disabled>Download CSV</button>
   </div>
-  <div id="status">No file selected.</div>
-  <div id="details"></div>
-  <div id="previewWrap">
-    <h2>Flattened data preview</h2>
+  <div id="status">No files selected.</div>
+  <section id="resultsCard" hidden>
+    <div id="resultSummary"></div>
     <div class="table-scroll">
-      <table id="previewTable">
-        <thead><tr><th>Field</th><th>Value</th></tr></thead>
-        <tbody></tbody>
-      </table>
+      <table id="previewTable"><thead></thead><tbody></tbody></table>
     </div>
-  </div>
+  </section>
 </main>
 <script>
 (() => {
   "use strict";
   const zone = document.querySelector("#dropZone");
   const picker = document.querySelector("#filePicker");
+  const fileListEl = document.querySelector("#fileList");
+  const processBtn = document.querySelector("#processBtn");
   const download = document.querySelector("#download");
-  const loadNew = document.querySelector("#loadNew");
+  const clearBtn = document.querySelector("#clearBtn");
   const includeEmpty = document.querySelector("#includeEmpty");
   const status = document.querySelector("#status");
-  const details = document.querySelector("#details");
-  const previewWrap = document.querySelector("#previewWrap");
-  const previewBody = document.querySelector("#previewTable tbody");
-  let result = null;
+  const resultsCard = document.querySelector("#resultsCard");
+  const resultSummary = document.querySelector("#resultSummary");
+  const previewTable = document.querySelector("#previewTable");
+
+  let queue = [];        // File objects waiting to be processed
+  let parsedFiles = [];  // { name, fileBase, reportTitle, values, order } for files that parsed OK
+  let failedFiles = [];  // { name, message }
+  let state = null;      // { columns, rows } ready for preview/download
 
   const clean = value => (value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
@@ -90,7 +102,7 @@
       return seen[base] === 1 ? base : `${base}_${seen[base]}`;
     });
   };
-  const isEmpty = value => value === "" || value.toLowerCase() === "na";
+  const isEmptyVal = value => value === undefined || value === "" || String(value).toLowerCase() === "na";
 
   function previousLabel(table) {
     let node = table;
@@ -112,9 +124,8 @@
     return "";
   }
 
-  function parse(file, html) {
+  function parseSingle(file, html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const text = clean(doc.body.textContent);
     if (!doc.body || !doc.querySelector("table")) throw new Error("No HTML tables were found.");
     const values = Object.create(null);
     const reportTitle = clean(doc.body.querySelector("span")?.textContent);
@@ -167,74 +178,155 @@
         });
       }
     }
+    if (!columns.length) throw new Error("No measurement tables with a Spacing header were found.");
+
     const metadataNames = Object.keys(values);
-    const filtered = columns.filter((column, index) => includeEmpty.checked || !isEmpty(row[index] || ""));
-    const outputHeaders = unique(metadataNames.concat(filtered));
-    const outputValues = metadataNames.map(name => values[name]).concat(filtered.map(name => row[columns.indexOf(name)] || ""));
-    if (outputHeaders.length <= metadataNames.length) throw new Error("No measurement tables with a Spacing header were found.");
-    return { headers: outputHeaders, row: outputValues, fileBase, reportTitle, source: text.length };
+    const measurementValues = Object.create(null);
+    columns.forEach((column, index) => { measurementValues[column] = row[index]; });
+    const order = unique(metadataNames.concat(columns));
+    const merged = Object.create(null);
+    order.forEach((name, index) => {
+      merged[name] = index < metadataNames.length
+        ? values[metadataNames[index]]
+        : measurementValues[columns[index - metadataNames.length]];
+    });
+    return { name: file.name, fileBase, reportTitle, values: merged, order };
   }
 
-  function renderPreview() {
-    if (!result) { previewWrap.classList.remove("show"); previewBody.innerHTML = ""; return; }
-    previewBody.innerHTML = result.headers.map((header, index) => {
-      const value = result.row[index];
-      const isEmpty = value === undefined || value === "";
-      return `<tr><td>${escapeHtml(header)}</td><td class="${isEmpty ? "empty" : ""}">${isEmpty ? "(empty)" : escapeHtml(value)}</td></tr>`;
-    }).join("");
-    previewWrap.classList.add("show");
+  function renderFileList() {
+    fileListEl.innerHTML = queue.map((file, index) =>
+      `<li data-index="${index}"><span class="name">${escapeHtml(file.name)}</span>` +
+      `<button type="button" class="removeFile" data-index="${index}" aria-label="Remove ${escapeHtml(file.name)}">&#10005;</button></li>`
+    ).join("");
+    processBtn.disabled = queue.length === 0;
   }
 
-  async function read(file) {
-    try {
-      if (!file.name.match(/\.(html?|HTML?)$/)) throw new Error("Please choose an .htm or .html file.");
-      status.textContent = "Reading and flattening...";
-      status.className = "";
-      result = parse(file, await file.text());
-      download.disabled = false;
-      status.textContent = "Ready to download.";
-      status.className = "ok";
-      details.textContent = `${result.reportTitle || "HTML report"}\n${result.headers.length} columns, 1 data row`;
-      renderPreview();
-    } catch (error) {
-      result = null; download.disabled = true;
-      status.textContent = error.message || "Could not parse this file.";
-      status.className = "error"; details.textContent = "";
-      renderPreview();
+  function addFiles(list) {
+    const incoming = [...list].filter(file => /\.(html?|HTML?)$/.test(file.name));
+    const rejected = list.length - incoming.length;
+    queue = queue.concat(incoming);
+    renderFileList();
+    resultsCard.hidden = true;
+    download.disabled = true;
+    status.textContent = `${queue.length} file${queue.length === 1 ? "" : "s"} ready to process.` +
+      (rejected ? ` (${rejected} non-HTML file${rejected === 1 ? "" : "s"} skipped.)` : "");
+    status.className = "";
+  }
+
+  async function processAll() {
+    if (!queue.length) return;
+    status.textContent = "Reading and flattening...";
+    status.className = "";
+    processBtn.disabled = true;
+    parsedFiles = [];
+    failedFiles = [];
+    for (const file of queue) {
+      try {
+        const html = await file.text();
+        parsedFiles.push(parseSingle(file, html));
+      } catch (error) {
+        failedFiles.push({ name: file.name, message: error.message || "Could not parse this file." });
+      }
     }
+    processBtn.disabled = false;
+    renderResults();
   }
+
+  function renderResults() {
+    if (!parsedFiles.length) {
+      state = null;
+      resultsCard.hidden = true;
+      download.disabled = true;
+      status.textContent = failedFiles.length
+        ? `Could not parse ${failedFiles.length} file${failedFiles.length === 1 ? "" : "s"}: ${failedFiles.map(f => f.name).join(", ")}.`
+        : "No files selected.";
+      status.className = failedFiles.length ? "error" : "";
+      return;
+    }
+    const columnOrder = [];
+    for (const parsed of parsedFiles) {
+      for (const name of parsed.order) if (!columnOrder.includes(name)) columnOrder.push(name);
+    }
+    const filteredColumns = columnOrder.filter(column => column === "File_Name" || includeEmpty.checked ||
+      parsedFiles.some(parsed => !isEmptyVal(parsed.values[column])));
+    const rows = parsedFiles.map(parsed => filteredColumns.map(column => parsed.values[column] ?? ""));
+    state = { columns: filteredColumns, rows };
+
+    const summary = [`${parsedFiles.length} file${parsedFiles.length === 1 ? "" : "s"} flattened into ${rows.length} row${rows.length === 1 ? "" : "s"} \u00d7 ${filteredColumns.length} columns.`];
+    if (failedFiles.length) summary.push(`${failedFiles.length} file${failedFiles.length === 1 ? "" : "s"} could not be parsed: ${failedFiles.map(f => f.name).join(", ")}.`);
+    resultSummary.textContent = summary.join(" ");
+    resultsCard.hidden = false;
+    download.disabled = false;
+    status.textContent = "Ready to download.";
+    status.className = "ok";
+    renderPreviewTable();
+  }
+
+  function renderPreviewTable() {
+    const thead = previewTable.querySelector("thead");
+    const tbody = previewTable.querySelector("tbody");
+    thead.innerHTML = `<tr>${state.columns.map(column => `<th title="${escapeHtml(column)}">${escapeHtml(column)}</th>`).join("")}</tr>`;
+    tbody.innerHTML = state.rows.map(row => `<tr>${row.map(value => {
+      const empty = isEmptyVal(value);
+      return `<td class="${empty ? "empty" : ""}" title="${escapeHtml(value)}">${empty ? "(empty)" : escapeHtml(value)}</td>`;
+    }).join("")}</tr>`).join("");
+  }
+
   function csvCell(value) {
     const text = String(value ?? "");
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
+
   function save() {
-    if (!result) return;
-    const csv = "\ufeff" + [result.headers, result.row].map(line => line.map(csvCell).join(",")).join("\r\n") + "\r\n";
+    if (!state || !state.rows.length) return;
+    const csv = "\ufeff" + [state.columns, ...state.rows].map(line => line.map(csvCell).join(",")).join("\r\n") + "\r\n";
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `${result.fileBase}_flattened.csv`;
+    if (parsedFiles.length === 1) {
+      link.download = `${parsedFiles[0].fileBase}_flattened.csv`;
+    } else {
+      const now = new Date();
+      const stamp = now.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+      link.download = `AH_flattened_${parsedFiles.length}reports_${stamp}.csv`;
+    }
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   }
+
   function reset() {
-    result = null;
+    queue = [];
+    parsedFiles = [];
+    failedFiles = [];
+    state = null;
     picker.value = "";
+    renderFileList();
+    resultsCard.hidden = true;
     download.disabled = true;
-    status.textContent = "No file selected.";
+    status.textContent = "No files selected.";
     status.className = "";
-    details.textContent = "";
-    renderPreview();
   }
+
   zone.addEventListener("click", () => picker.click());
   zone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") picker.click(); });
-  picker.addEventListener("change", event => { if (event.target.files[0]) read(event.target.files[0]); });
+  picker.addEventListener("change", event => { if (event.target.files.length) addFiles(event.target.files); });
   zone.addEventListener("dragover", event => { event.preventDefault(); zone.classList.add("over"); });
   zone.addEventListener("dragleave", () => zone.classList.remove("over"));
-  zone.addEventListener("drop", event => { event.preventDefault(); zone.classList.remove("over"); if (event.dataTransfer.files[0]) read(event.dataTransfer.files[0]); });
-  includeEmpty.addEventListener("change", () => { if (picker.files[0]) read(picker.files[0]); });
+  zone.addEventListener("drop", event => {
+    event.preventDefault(); zone.classList.remove("over");
+    if (event.dataTransfer.files.length) addFiles(event.dataTransfer.files);
+  });
+  fileListEl.addEventListener("click", event => {
+    const button = event.target.closest(".removeFile");
+    if (!button) return;
+    queue.splice(Number(button.dataset.index), 1);
+    renderFileList();
+    if (!queue.length) { status.textContent = "No files selected."; status.className = ""; }
+  });
+  includeEmpty.addEventListener("change", () => { if (parsedFiles.length) renderResults(); });
+  processBtn.addEventListener("click", processAll);
   download.addEventListener("click", save);
-  loadNew.addEventListener("click", reset);
+  clearBtn.addEventListener("click", reset);
 })();
 </script>
 </body>
