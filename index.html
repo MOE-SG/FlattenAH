@@ -20,6 +20,16 @@
     .error { color: #a11; } .ok { color: #176b3a; }
     .options { display: flex; gap: 18px; align-items: center; margin: 18px 0; }
     code { background: #eef2f8; padding: 2px 5px; border-radius: 4px; }
+    #previewWrap { display: none; margin-top: 8px; }
+    #previewWrap.show { display: block; }
+    #previewWrap h2 { font-size: 14px; margin: 0 0 8px; color: #172033; }
+    .table-scroll { max-height: 420px; overflow: auto; border: 1px solid #d9e0ec; border-radius: 8px; }
+    #previewTable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    #previewTable th, #previewTable td { padding: 7px 10px; border-bottom: 1px solid #e4e9f2; text-align: left; vertical-align: top; }
+    #previewTable th { position: sticky; top: 0; background: #eef2f8; color: #172033; font-weight: 600; }
+    #previewTable td:first-child, #previewTable th:first-child { color: #526078; white-space: nowrap; }
+    #previewTable tr:nth-child(even) td { background: #f9fafc; }
+    #previewTable td.empty { color: #9aa5b8; font-style: italic; }
   </style>
 </head>
 <body>
@@ -40,6 +50,15 @@
   </div>
   <div id="status">No file selected.</div>
   <div id="details"></div>
+  <div id="previewWrap">
+    <h2>Flattened data preview</h2>
+    <div class="table-scroll">
+      <table id="previewTable">
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 </main>
 <script>
 (() => {
@@ -51,9 +70,14 @@
   const includeEmpty = document.querySelector("#includeEmpty");
   const status = document.querySelector("#status");
   const details = document.querySelector("#details");
+  const previewWrap = document.querySelector("#previewWrap");
+  const previewBody = document.querySelector("#previewTable tbody");
   let result = null;
 
   const clean = value => (value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[ch]));
   const key = value => clean(value).replace(/["']/g, "").replace(/[()]/g, "")
     .replace(/&/g, "and").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "");
   const cells = row => [...row.children].filter(node => /^(TD|TH)$/i.test(node.tagName))
@@ -151,6 +175,16 @@
     return { headers: outputHeaders, row: outputValues, fileBase, reportTitle, source: text.length };
   }
 
+  function renderPreview() {
+    if (!result) { previewWrap.classList.remove("show"); previewBody.innerHTML = ""; return; }
+    previewBody.innerHTML = result.headers.map((header, index) => {
+      const value = result.row[index];
+      const isEmpty = value === undefined || value === "";
+      return `<tr><td>${escapeHtml(header)}</td><td class="${isEmpty ? "empty" : ""}">${isEmpty ? "(empty)" : escapeHtml(value)}</td></tr>`;
+    }).join("");
+    previewWrap.classList.add("show");
+  }
+
   async function read(file) {
     try {
       if (!file.name.match(/\.(html?|HTML?)$/)) throw new Error("Please choose an .htm or .html file.");
@@ -161,10 +195,12 @@
       status.textContent = "Ready to download.";
       status.className = "ok";
       details.textContent = `${result.reportTitle || "HTML report"}\n${result.headers.length} columns, 1 data row`;
+      renderPreview();
     } catch (error) {
       result = null; download.disabled = true;
       status.textContent = error.message || "Could not parse this file.";
       status.className = "error"; details.textContent = "";
+      renderPreview();
     }
   }
   function csvCell(value) {
@@ -188,6 +224,7 @@
     status.textContent = "No file selected.";
     status.className = "";
     details.textContent = "";
+    renderPreview();
   }
   zone.addEventListener("click", () => picker.click());
   zone.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") picker.click(); });
