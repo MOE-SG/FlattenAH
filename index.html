@@ -23,12 +23,31 @@
     #fileList { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
     #fileList:empty { display: none; margin: 0; }
     #fileList li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f0f4fa; border: 1px solid #d9e0ec; border-radius: 7px; padding: 7px 12px; font-size: 13.5px; }
+    #fileList li.warn { background: #fff6e8; border-color: #f0cb8a; }
+    #fileList li .name-wrap { display: flex; align-items: center; gap: 8px; overflow: hidden; }
     #fileList li span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #fileList li button.removeFile { background: transparent; color: #a11; padding: 2px 8px; font-size: 13px; border-radius: 5px; }
+    #fileList li span.tag { flex: none; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; white-space: nowrap; }
+    #fileList li span.tag.warn { background: #fbe3b8; color: #8a5a00; }
+    #fileList li span.tag.bad { background: #fbdada; color: #a11; }
+    #fileList li button.removeFile { background: transparent; color: #a11; padding: 2px 8px; font-size: 13px; border-radius: 5px; flex: none; }
     #fileList li button.removeFile:hover { background: #fbe6e6; }
+
+    #formatWarning { display: none; margin-top: 12px; background: #fff6e8; border: 1px solid #f0cb8a; color: #7a4d00; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; }
+    #formatWarning.show { display: block; }
+    #formatWarning ul { margin: 4px 0 0; padding-left: 18px; }
 
     #resultsCard { margin-top: 8px; }
     #resultSummary { color: #526078; margin: 0 0 14px; }
+
+    #filenameOverlay { display: none; position: fixed; inset: 0; background: #17203366; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
+    #filenameOverlay.show { display: flex; }
+    #filenameOverlay .modal { background: white; border-radius: 12px; padding: 22px 24px; width: 100%; max-width: 460px; box-shadow: 0 12px 40px #17203340; }
+    #filenameOverlay h3 { margin: 0 0 6px; font-size: 16px; }
+    #filenameOverlay p { margin: 0 0 14px; font-size: 13.5px; }
+    #filenameInput { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid #c3cde0; border-radius: 7px; font: inherit; margin-bottom: 16px; }
+    #filenameInput:focus { outline: 2px solid #1769e0; outline-offset: 1px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    #filenameCancel { background: #e4e9f2; color: #172033; }
     .table-scroll { max-height: 460px; overflow: auto; border: 1px solid #d9e0ec; border-radius: 8px; }
     #previewTable { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
     #previewTable th, #previewTable td { padding: 7px 9px; border-bottom: 1px solid #e4e9f2; border-right: 1px solid #eef2f8; text-align: left; vertical-align: top; white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
@@ -53,6 +72,7 @@
     <input id="filePicker" type="file" accept=".htm,.html,text/html" multiple>
   </div>
   <ul id="fileList"></ul>
+  <div id="formatWarning"></div>
   <div class="options">
     <label><input id="includeEmpty" type="checkbox" checked> Include empty / <code>na</code> values</label>
     <label><input id="transposeToggle" type="checkbox" checked> Transpose (fields as rows)</label>
@@ -67,12 +87,24 @@
     </div>
   </section>
 </main>
+<div id="filenameOverlay">
+  <div class="modal">
+    <h3>Save CSV as</h3>
+    <p>Edit the filename if you'd like, then save.</p>
+    <input id="filenameInput" type="text" spellcheck="false">
+    <div class="modal-actions">
+      <button id="filenameCancel" type="button">Cancel</button>
+      <button id="filenameConfirm" type="button">Save CSV</button>
+    </div>
+  </div>
+</div>
 <script>
 (() => {
   "use strict";
   const zone = document.querySelector("#dropZone");
   const picker = document.querySelector("#filePicker");
   const fileListEl = document.querySelector("#fileList");
+  const formatWarning = document.querySelector("#formatWarning");
   const processBtn = document.querySelector("#processBtn");
   const download = document.querySelector("#download");
   const clearBtn = document.querySelector("#clearBtn");
@@ -82,6 +114,10 @@
   const resultsCard = document.querySelector("#resultsCard");
   const resultSummary = document.querySelector("#resultSummary");
   const previewTable = document.querySelector("#previewTable");
+  const filenameOverlay = document.querySelector("#filenameOverlay");
+  const filenameInput = document.querySelector("#filenameInput");
+  const filenameCancel = document.querySelector("#filenameCancel");
+  const filenameConfirm = document.querySelector("#filenameConfirm");
 
   let queue = [];        // File objects waiting to be processed
   let parsedFiles = [];  // { name, fileBase, reportTitle, values, order } for files that parsed OK
@@ -105,6 +141,53 @@
     });
   };
   const isEmptyVal = value => value === undefined || value === "" || String(value).toLowerCase() === "na";
+
+  // QADR and COMRES reports share the Airhang report format and typically
+  // carry "Airhang" in the filename (their own filenames can otherwise be
+  // identical). ResiStar reports carry "ResiStar" in the filename and use a
+  // structurally different report - this tool only understands the Airhang
+  // format, so ResiStar files should be flagged rather than silently
+  // mis-parsed.
+  function detectFormat(name) {
+    const lower = name.toLowerCase();
+    if (lower.includes("resistar")) return "resistar";
+    if (lower.includes("airhang")) return "airhang";
+    return "unknown";
+  }
+
+  // QADR and COMRES share the same Airhang report format and can't be told
+  // apart from filename alone, so both are labeled "ADR" for naming
+  // purposes. ResiStar reports carry "ResiStar" in the filename and use a
+  // different report structure.
+  function productLabel(format) {
+    if (format === "resistar") return "ResiStar";
+    if (format === "airhang") return "ADR";
+    return "";
+  }
+
+  function pad2(value) { return String(value).padStart(2, "0"); }
+
+  function buildDownloadName() {
+    const now = new Date();
+    const stamp = `${String(now.getFullYear()).slice(-2)}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}` +
+      `-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+    let keyPart = "";
+    let productPart = "";
+    if (parsedFiles.length === 1) {
+      const toolId = parsedFiles[0].values.Tool_ID;
+      keyPart = toolId ? key(toolId) : "";
+      productPart = productLabel(detectFormat(parsedFiles[0].name));
+    } else if (parsedFiles.length > 1) {
+      keyPart = `${parsedFiles.length}files`;
+      const labels = new Set(parsedFiles.map(parsed => productLabel(detectFormat(parsed.name))).filter(Boolean));
+      productPart = [...labels].join("+");
+    }
+    const parts = [stamp];
+    if (keyPart) parts.push(keyPart);
+    if (productPart) parts.push(productPart);
+    parts.push("flattenAH");
+    return `${parts.join("-")}.csv`;
+  }
 
   function previousLabel(table) {
     let node = table;
@@ -196,11 +279,41 @@
   }
 
   function renderFileList() {
-    fileListEl.innerHTML = queue.map((file, index) =>
-      `<li data-index="${index}"><span class="name">${escapeHtml(file.name)}</span>` +
-      `<button type="button" class="removeFile" data-index="${index}" aria-label="Remove ${escapeHtml(file.name)}">&#10005;</button></li>`
-    ).join("");
+    fileListEl.innerHTML = queue.map((file, index) => {
+      const format = detectFormat(file.name);
+      const tag = format === "resistar"
+        ? '<span class="tag bad">ResiStar - unsupported</span>'
+        : format === "unknown"
+          ? '<span class="tag warn">No "Airhang" in name</span>'
+          : "";
+      const li = format === "airhang" ? "" : ' class="warn"';
+      return `<li${li} data-index="${index}"><span class="name-wrap"><span class="name">${escapeHtml(file.name)}</span>${tag}</span>` +
+        `<button type="button" class="removeFile" data-index="${index}" aria-label="Remove ${escapeHtml(file.name)}">&#10005;</button></li>`;
+    }).join("");
     processBtn.disabled = queue.length === 0;
+    renderFormatWarning();
+  }
+
+  function renderFormatWarning() {
+    if (!queue.length) { formatWarning.classList.remove("show"); formatWarning.innerHTML = ""; return; }
+    const formats = queue.map(file => detectFormat(file.name));
+    const unknownFiles = queue.filter((_, i) => formats[i] === "unknown");
+    const resistarFiles = queue.filter((_, i) => formats[i] === "resistar");
+    const distinctFormats = new Set(formats);
+    const lines = [];
+    if (resistarFiles.length) {
+      const reportNoun = resistarFiles.length === 1 ? "a ResiStar report" : "ResiStar reports";
+      lines.push(`${resistarFiles.length} file${resistarFiles.length === 1 ? "" : "s"} look${resistarFiles.length === 1 ? "s" : ""} like ${reportNoun}, which use${resistarFiles.length === 1 ? "s" : ""} a different format from QADR/COMRES Airhang reports and ${resistarFiles.length === 1 ? "is" : "are"} not supported by this tool: ${resistarFiles.map(f => f.name).join(", ")}.`);
+    }
+    if (unknownFiles.length) {
+      lines.push(`${unknownFiles.length} file${unknownFiles.length === 1 ? "" : "s"} do${unknownFiles.length === 1 ? "es" : ""} not have "Airhang" in the filename - double-check ${unknownFiles.length === 1 ? "it's" : "they're"} a QADR/COMRES Airhang report before processing: ${unknownFiles.map(f => f.name).join(", ")}.`);
+    }
+    if (distinctFormats.size > 1) {
+      lines.push("This batch mixes different report formats. Process each format separately so rows line up correctly.");
+    }
+    if (!lines.length) { formatWarning.classList.remove("show"); formatWarning.innerHTML = ""; return; }
+    formatWarning.innerHTML = `<strong>Heads up:</strong><ul>${lines.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`;
+    formatWarning.classList.add("show");
   }
 
   function addFiles(list) {
@@ -296,21 +409,34 @@
     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
-  function save() {
+  function openFilenameModal() {
     if (!state || !state.rows.length) return;
+    filenameInput.value = buildDownloadName();
+    filenameOverlay.classList.add("show");
+    filenameInput.focus();
+    filenameInput.select();
+  }
+
+  function closeFilenameModal() {
+    filenameOverlay.classList.remove("show");
+  }
+
+  function triggerDownload(filename) {
     const csv = "\ufeff" + [state.columns, ...state.rows].map(line => line.map(csvCell).join(",")).join("\r\n") + "\r\n";
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    if (parsedFiles.length === 1) {
-      link.download = `${parsedFiles[0].fileBase}_flattened.csv`;
-    } else {
-      const now = new Date();
-      const stamp = now.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-      link.download = `AH_flattened_${parsedFiles.length}reports_${stamp}.csv`;
-    }
+    link.download = filename;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+
+  function confirmFilenameAndSave() {
+    let name = filenameInput.value.trim();
+    if (!name) return;
+    if (!/\.csv$/i.test(name)) name += ".csv";
+    closeFilenameModal();
+    triggerDownload(name);
   }
 
   function reset() {
@@ -324,6 +450,7 @@
     download.disabled = true;
     status.textContent = "No files selected.";
     status.className = "";
+    closeFilenameModal();
   }
 
   zone.addEventListener("click", () => picker.click());
@@ -345,7 +472,14 @@
   includeEmpty.addEventListener("change", () => { if (parsedFiles.length) renderResults(); });
   transposeToggle.addEventListener("change", () => { if (state) renderPreviewTable(); });
   processBtn.addEventListener("click", processAll);
-  download.addEventListener("click", save);
+  download.addEventListener("click", openFilenameModal);
+  filenameCancel.addEventListener("click", closeFilenameModal);
+  filenameConfirm.addEventListener("click", confirmFilenameAndSave);
+  filenameOverlay.addEventListener("click", event => { if (event.target === filenameOverlay) closeFilenameModal(); });
+  filenameInput.addEventListener("keydown", event => {
+    if (event.key === "Enter") confirmFilenameAndSave();
+    if (event.key === "Escape") closeFilenameModal();
+  });
   clearBtn.addEventListener("click", reset);
 })();
 </script>
